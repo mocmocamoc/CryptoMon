@@ -14,6 +14,8 @@ import csv
 from crypto_priv import HOLDINGS, CHANGELLY_KEY, CHANGELLY_SECRET
 
 LIMIT=40
+NO_HIGHLIGHT = ["Bitty"]
+MIN_HIGHLIGHT = ["Mkup"]
 
 class CMCClient:
     data = None
@@ -118,13 +120,14 @@ class CMCReport:
                 det["Total"] += val
             det["Total"] = int(round(det["Total"]))
             if not self.hist or det["Total"] != self.hist[max(self.hist)]["Total"]:
-                #sleepTime = 300
+                sleepTime = 300
                 equiv = self.getEquivalent("BTC", ignoreLimit=True)
                 for id, qty in list(HOLDINGS.items()):
                     if id not in equiv:
                         equiv[id] = ("NA", (prices[id] * qty) / prices["BTC"])
                 equivSum = sum([v[1] for k,v in list(equiv.items())])
-                det["Equiv"] = round(equivSum, 2)
+                #det["Equiv"] = round(equivSum, 2)
+                equivSum = HOLDINGS["BTC"]
                 if self.useBS:
                     equivSumNoXRP = sum([v[1] for k,v in list(equiv.items()) if k != "XRP"])
                     real = self.getSalePrice(equivSumNoXRP, "BTC", "USD") + self.getSalePrice(HOLDINGS.get("XRP", 0), "XRP", "USD") 
@@ -134,6 +137,11 @@ class CMCReport:
                     det["Real"] = int(round(real))
                 else:
                     det["Real"] = int(round(equivSum * prices["BTC"] * fx))
+                bittyPrice = getBitty()
+                det["Bitty"] = int(round(bittyPrice))
+                mktPrice = prices["BTC"] * fx
+                det["Mkt"] = int(round(mktPrice))
+                det["Mkup"] = round(100 * ((bittyPrice - mktPrice) / mktPrice), 2)
                 self.hist[int(time.time())] = det
                 self.hist = dict([(k,v) for k, v in list(self.hist.items()) if k > time.time() - (24 * 60 * 60)])
                 self.saveHist()
@@ -257,6 +265,8 @@ class CMCReport:
         yield("<body><style>table, th, td { border: 1px solid black; border-collapse: collapse; padding: 3px;} td { text-align: right;}</style>")
         yield("<table>")
         keys = [k for k,v in sorted(list(self.hist[max(self.hist)].items()), reverse=True, key=lambda x_y1: x_y1[1])]
+        if len(HOLDINGS) < 2:
+            keys.remove("Total")
         yield("<tr>")
         yield("<th>Time</th>")
         yield("".join(["<th>%s</th>" % k for k in keys]))
@@ -272,11 +282,15 @@ class CMCReport:
                 col = "black"
                 if dprev is not None:
                     if d[k] > dprev[k]:
-                        col = "green"
+                        col = "red" if k in MIN_HIGHLIGHT else "green"
                     elif d[k] < dprev[k]:
-                        col = "red"
+                        col = "green" if k in MIN_HIGHLIGHT else "red"
+                if k not in NO_HIGHLIGHT:
+                    targetFunc = min if k in MIN_HIGHLIGHT else max
+                    if d[k] == targetFunc([v.get(k, 0) for v in list(self.hist.values())]):
+                        col = "blue"
                 strTD = "<td style='color:{:s}'>{:,.%if}</td>" % (2 if d[k] > 0 and d[k] < 100 else 0)
-                row += strTD.format("blue" if d[k] == max([v.get(k, 0) for v in list(self.hist.values())]) else col, d[k])
+                row += strTD.format(col, d[k])
             dprev = d
             row += "</tr>"
             rows = [row] + rows
